@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Familjelistan</title>
+  <meta name="description" content="Familjens gemensamma att göra-listor">
+  <meta name="theme-color" content="#0f766e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Familjelistan">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="stylesheet" href="styles.css">
+  <script src="config.js"></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+  <div id="app">
+    <div id="demo-banner" class="demo-banner" hidden>Demoläge – allt sparas bara på den här enheten.</div>
+    <header id="top"></header>
+    <main id="content"><div class="loading">Laddar…</div></main>
+    <form id="composer" class="composer" hidden autocomplete="off">
+      <input id="composer-input" type="text" enterkeyhint="done" list="suggestions" autocomplete="off">
+      <datalist id="suggestions"></datalist>
+      <button type="submit" aria-label="Lägg till">+</button>
+    </form>
+    <nav id="tabs" class="tabs" hidden>
+      <button data-tab="today"><span class="ti">☀️</span>Idag</button>
+      <button data-tab="lists"><span class="ti">📋</span>Listor</button>
+      <button data-tab="family"><span class="ti">👨‍👩‍👦</span>Familj</button>
+    </nav>
+  </div>
+  <div id="sheet-wrap" class="sheet-wrap" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <div id="sheet" class="sheet" role="dialog" aria-modal="true"></div>
+  </div>
+  <div id="toast" class="toast" hidden></div>
+</body>
+</html>

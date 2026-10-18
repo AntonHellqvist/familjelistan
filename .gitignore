@@ -1,0 +1,5 @@
+node_modules/
+.DS_Store
+.claude/
+# Firebase-nyckeln får aldrig laddas upp
+*firebase-adminsdk*.json

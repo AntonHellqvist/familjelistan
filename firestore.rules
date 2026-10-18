@@ -1,0 +1,44 @@
+rules_version = '2';
+
+// Säkerhetsregler: bara familjemedlemmar kan se och ändra familjens listor.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isMember(fid) {
+      return signedIn() &&
+        request.auth.uid in get(/databases/$(database)/documents/families/$(fid)).data.members;
+    }
+    // Någon som har inbjudningskoden lägger till sig själv – och inget annat.
+    function isJoining() {
+      let added = request.resource.data.members.removeAll(resource.data.members);
+      return signedIn() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberInfo']) &&
+        request.resource.data.members.hasAll(resource.data.members) &&
+        added.hasOnly([request.auth.uid]) &&
+        request.resource.data.memberInfo.diff(resource.data.memberInfo).affectedKeys().hasOnly([request.auth.uid]);
+    }
+
+    match /users/{uid} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+
+    match /joinCodes/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn() &&
+        request.auth.uid in getAfter(/databases/$(database)/documents/families/$(request.resource.data.familyId)).data.members;
+    }
+
+    match /families/{fid} {
+      allow read: if signedIn() && request.auth.uid in resource.data.members;
+      allow create: if signedIn() && request.resource.data.members == [request.auth.uid];
+      allow update: if (signedIn() && request.auth.uid in resource.data.members) || isJoining();
+
+      match /{sub}/{id} {
+        allow read, write: if isMember(fid);
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "name": "familjelistan-reminders",
+  "description": "Pushpåminnelser för Familjelistan",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}
