@@ -11,6 +11,6 @@ self.FAMILY_CONFIG = {
     appId: "1:268172405653:web:b132fbe16d8b8f1648249c"
   },
 
-  // Nyckel för pushnotiser (GUIDE.md, steg 5). Lämna tom tills dess.
-  vapidKey: ""
+  // Nyckel för pushnotiser (GUIDE.md, steg 5). Inte hemlig.
+  vapidKey: "BENrOnGmeuDNckZAaV1zuGl4LYXjxspMaTVzieoGKzllTte4lOfKngY1IvLBNLO4Db6_A6c9HcLwPs2m2qLR2PQ"
 };
