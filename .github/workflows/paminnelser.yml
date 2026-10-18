@@ -1,0 +1,36 @@
+name: Påminnelser
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # var 15:e minut: skickar notiser
+    - cron: '0 3 1 * *'      # den 1:a varje månad: håller schemat igång
+  workflow_dispatch:         # gör att du kan köra den manuellt under fliken Actions
+
+jobs:
+  skicka:
+    if: github.event.schedule != '0 3 1 * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --prefix reminders --no-audit --no-fund
+      - run: node reminders/send.mjs
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          APP_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/
+
+  # GitHub pausar scheman i repon som inte ändrats på 60 dagar. En tom commit en gång i månaden förhindrar det.
+  hall-igang:
+    if: github.event.schedule == '0 3 1 * *'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          git commit --allow-empty -m "Håller påminnelserna igång"
+          git push
