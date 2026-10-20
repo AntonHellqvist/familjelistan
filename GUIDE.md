@@ -9,8 +9,8 @@ Den fungerar likadant på iPhone och Samsung.
 | Familjens delade listor | Firebase (Googles databas) | Gratis, inget kort behövs |
 | Pushpåminnelser | GitHub Actions | Gratis |
 
-**Ingen behöver logga in.** Varje telefon kopplas till familjen en gång, via en inbjudningslänk,
-och därefter öppnas appen direkt.
+Var och en skapar ett **konto med sin e-post** första gången och går med i familjen via en inbjudningslänk.
+Därefter är man inloggad och appen öppnas direkt. Byter man telefon loggar man bara in igen.
 
 > 💡 Du behöver inte göra allt själv. Säg till Claude "hjälp mig med steg 3" så gör vi det tillsammans.
 
@@ -22,8 +22,9 @@ Utan inställningar startar appen i **demoläge** med påhittad data, så att du
 
 1. Gå till <https://console.firebase.google.com> och logga in med ett Google-konto.
 2. Klicka **Skapa ett projekt**. Ge det ett namn, t.ex. `familjelistan`. Google Analytics behövs inte. Klicka **Skapa**.
-3. I menyn till vänster: **Build → Authentication → Kom igång**. Välj **Anonym** (Anonymous), slå på den och klicka **Spara**.
-   (Det betyder bara att telefonerna får en osynlig identitet. Ingen behöver skapa konto.)
+3. I menyn till vänster: **Build → Authentication → Kom igång**. Under **Inloggningsmetod** slår du på två metoder:
+   - **E-post/lösenord** (Email/Password). Slå på det översta reglaget och klicka **Spara**.
+   - **Anonym** (Anonymous). Används en kort stund innan man har skapat sitt konto.
 4. I menyn: **Build → Firestore Database → Skapa databas**. Välj plats **europe-west1 (Belgium)** och **produktionsläge**.
 5. När databasen är skapad: gå till fliken **Regler** (Rules). Ta bort allt som står där,
    klistra in hela innehållet från filen `firestore.rules` och klicka **Publicera**.
@@ -66,12 +67,13 @@ Det är okej att de här värdena ligger öppet på GitHub. De är inte hemliga,
 
 ## Steg 4 – Installera på telefonerna
 
-1. Öppna appen på din telefon, välj **Skapa ny familj** och skriv ditt namn.
+1. Öppna appen på din telefon. Skriv ditt namn, din e-post och ett lösenord och välj **Skapa ny familj**.
 2. Gå till fliken **Familj** → **Dela inbjudan** och skicka länken till pappa och mamma, t.ex. via SMS.
-3. De öppnar länken, skriver sitt namn och är med.
-4. Lägg appen på hemskärmen:
+3. De öppnar länken, skriver namn, e-post och lösenord och är med.
+4. Byter någon telefon? Välj **Logga in** på välkomstsidan. Glömt lösenordet? Det finns en länk för det på inloggningssidan.
+5. Lägg appen på hemskärmen:
    - **iPhone:** öppna länken i **Safari** → tryck **Dela** (rutan med pilen) → **Lägg till på hemskärmen**.
-     Gör det *innan* du skriver ditt namn, eftersom appen på hemskärmen räknas som en egen telefon.
+     Gör det *innan* du skapar kontot. Safari och appen på hemskärmen loggas in var för sig.
    - **Samsung:** öppna länken i **Chrome** eller **Samsung Internet** → menyn (⋮ eller ☰) → **Installera app**.
 
 Har någon bytt telefon och gått med på nytt? Ta bort den gamla versionen av personen under fliken **Familj**.

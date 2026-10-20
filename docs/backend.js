@@ -36,6 +36,7 @@ async function createFirebase(cfg) {
   ]);
   const app = appM.initializeApp(cfg.firebase);
   const auth = A.getAuth(app);
+  auth.languageCode = 'sv'; // mejl om nytt lösenord skickas på svenska
   let db;
   try {
     // Lokal cache gör att appen fungerar utan nät och synkar när den är online igen.
@@ -59,11 +60,33 @@ async function createFirebase(cfg) {
     demo: false,
     pushConfigured: !!cfg.vapidKey,
 
-    // Ingen inloggning för familjen: varje telefon får automatiskt en egen osynlig identitet.
+    // Varje telefon får först en osynlig identitet. Den kopplas sedan till en e-post (linkEmail),
+    // så att man kan logga in igen på en ny telefon eller om appen har glömt en.
     onAuthChange: cb => A.onAuthStateChanged(auth, u => {
-      if (u) cb({ uid: u.uid });
+      if (u) cb({ uid: u.uid, email: u.email || null });
       else A.signInAnonymously(auth).catch(err => cb(null, err));
     }),
+    async linkEmail(email, password) {
+      const cred = A.EmailAuthProvider.credential(email, password);
+      await A.linkWithCredential(auth.currentUser, cred);
+      await F.setDoc(userDoc(auth.currentUser.uid), { email }, { merge: true });
+      return { uid: auth.currentUser.uid, email };
+    },
+    async signInEmail(email, password) {
+      const prev = auth.currentUser?.isAnonymous ? auth.currentUser.uid : null;
+      const { user } = await A.signInWithEmailAndPassword(auth, email, password);
+      // Om den här telefonen redan gått med i familjen utan konto: ta bort dubbletten.
+      if (prev && prev !== user.uid) {
+        try {
+          const fid = (await F.getDoc(userDoc(user.uid))).get('familyId');
+          const fam = fid && await F.getDoc(famDoc(fid));
+          if (fam?.exists() && (fam.get('members') || []).includes(prev)) {
+            await F.updateDoc(famDoc(fid), { members: F.arrayRemove(prev), [`memberInfo.${prev}`]: F.deleteField() });
+          }
+        } catch {}
+      }
+    },
+    resetPassword: email => A.sendPasswordResetEmail(auth, email),
     signOut: () => A.signOut(auth),
 
     watchProfile: (uid, cb) => F.onSnapshot(userDoc(uid), s => cb(s.data() || {}), () => cb({})),
@@ -192,7 +215,10 @@ function createDemo() {
   return {
     demo: true,
     pushConfigured: false,
-    onAuthChange: cb => { setTimeout(() => cb({ uid }), 0); return () => {}; },
+    onAuthChange: cb => { setTimeout(() => cb({ uid, email: data.profile.email || null }), 0); return () => {}; },
+    async linkEmail(email) { data.profile.email = email; emit(); return { uid, email }; },
+    signInEmail: async () => {},
+    resetPassword: async () => {},
     signOut: async () => { localStorage.removeItem(KEY); location.reload(); },
 
     watchProfile: (_, cb) => watch(L.profile, () => data.profile)(cb),

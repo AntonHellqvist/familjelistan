@@ -1,5 +1,5 @@
 // Service worker: gör att appen kan installeras, startar utan nät och tar emot pushnotiser.
-const CACHE = 'familjelistan-v2';
+const CACHE = 'familjelistan-v3';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'backend.js', 'config.js', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
 importScripts('config.js');

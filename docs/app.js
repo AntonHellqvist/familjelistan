@@ -141,6 +141,17 @@ function run(p) {
 function friendlyError(err) {
   const map = {
     'auth/network-request-failed': 'Ingen internetanslutning.',
+    'auth/invalid-credential': 'Fel e-post eller lösenord.',
+    'auth/wrong-password': 'Fel e-post eller lösenord.',
+    'auth/user-not-found': 'Det finns inget konto med den e-postadressen.',
+    'auth/invalid-email': 'E-postadressen ser inte rätt ut.',
+    'auth/missing-password': 'Skriv ett lösenord.',
+    'auth/weak-password': 'Lösenordet måste vara minst 6 tecken.',
+    'auth/email-already-in-use': 'Det finns redan ett konto med den e-posten. Välj "Logga in" istället.',
+    'auth/credential-already-in-use': 'Det finns redan ett konto med den e-posten. Välj "Logga in" istället.',
+    'auth/provider-already-linked': 'Det här kontot har redan en e-post kopplad.',
+    'auth/too-many-requests': 'För många försök. Vänta en stund och försök igen.',
+    'auth/operation-not-allowed': 'Inloggning med e-post är inte påslagen i Firebase ännu.',
     'permission-denied': 'Du har inte behörighet att göra det.',
   };
   return map[err?.code] || err?.message || 'Något gick fel.';
@@ -291,6 +302,7 @@ function renderToday() {
   const doneToday = S.tasks.filter(isDoneToday).length;
 
   let html = filterChips();
+  if (!B.demo && !S.user.email) html += `<button class="stat" style="display:block;width:100%;text-align:left;background:var(--chip);color:var(--text)" data-act="link-email">🔒 <b>Spara ditt konto med e-post</b> så att du aldrig tappar bort familjen. <span class="link">Gör det nu ›</span></button>`;
   if (doneToday) html += `<div class="stat">🎉 Familjen har klarat ${doneToday} ${doneToday === 1 ? 'sak' : 'saker'} idag</div>`;
   html += section('Försenat', late, { showList: true, danger: true });
   html += section('Idag', tod, { showList: true });
@@ -404,6 +416,14 @@ function renderFamily() {
     <div class="section-title"><span>Notiser</span></div>
     <div class="card">${pushHtml}</div>
 
+    ${B.demo ? '' : `<div class="section-title"><span>Mitt konto</span></div>
+    <div class="card">${S.user.email
+      ? `<div class="row"><div class="grow"><div>Inloggad som</div><div class="small">${esc(S.user.email)}</div></div></div>
+         <div class="btn-row"><button class="btn secondary" data-act="sign-out">Logga ut</button></div>`
+      : `<div class="row"><div class="grow small">Ditt konto är inte kopplat till någon e-post än. Om appen glömmer den här telefonen kommer du inte tillbaka in.</div></div>
+         <div class="btn-row"><button class="btn" data-act="link-email">Spara konto med e-post</button></div>`}
+    </div>`}
+
     ${installHtml}
 
     ${B.demo ? '<div style="margin-top:28px"><button class="btn secondary" data-act="logout">Återställ demon</button></div>' : ''}
@@ -424,20 +444,27 @@ function renderNoConnection() {
 /* --- Skapa eller gå med i familj --- */
 function renderOnboarding() {
   const mode = S.onboardMode || (joinParam ? 'join' : 'create');
+  if (mode === 'login') return renderLogin();
   const key = 'onboard-' + mode;
   if (S.screen === key) return;
   S.screen = key;
   setChrome(false);
-  const name = S.profile?.name || S.user.name || '';
-  let color = S.profile?.color || COLORS[3];
+  const d = S.onbDraft || {};
+  const name = d.name ?? (S.profile?.name || '');
+  let color = d.color || S.profile?.color || COLORS[3];
+  const needsEmail = !B.demo && !S.user.email;
   $('#top').innerHTML = '';
   $('#content').innerHTML = `
     <div class="auth">
       <h2>Välkommen! 👋</h2>
-      <p class="lead">${S.familyMissing ? 'Den här telefonen är inte längre med i en familj.' : joinParam ? 'Du har blivit inbjuden! Skriv ditt namn så är du med.' : 'Nu kopplar vi ihop den här telefonen med familjen.'}</p>
+      <p class="lead">${S.familyMissing ? 'Det här kontot är inte längre med i en familj.' : joinParam ? 'Du har blivit inbjuden! Skapa ditt konto så är du med.' : 'Skapa ditt konto och koppla ihop dig med familjen.'}</p>
       <form id="onb-form">
-        <label class="field"><span>Ditt namn</span><input class="input" name="name" value="${esc(name)}" required></label>
+        <label class="field"><span>Ditt namn</span><input class="input" name="name" value="${esc(name)}" autocomplete="given-name" required></label>
         <div class="field"><span>Din färg</span><div class="colors">${COLORS.map(c => `<button type="button" class="color ${c === color ? 'on' : ''}" style="--c:${c}" data-color="${c}" aria-label="Färg"></button>`).join('')}</div></div>
+        ${needsEmail ? `
+          <label class="field"><span>E-post</span><input class="input" name="email" type="email" inputmode="email" autocomplete="email" value="${esc(d.email || '')}" required></label>
+          <label class="field"><span>Välj ett lösenord (minst 6 tecken)</span><input class="input" name="password" type="password" autocomplete="new-password" minlength="6" value="${esc(d.password || '')}" required></label>
+        ` : ''}
         <div class="seg" style="margin:20px 0 16px">
           <button type="button" data-mode="create" class="${mode === 'create' ? 'on' : ''}">Skapa ny familj</button>
           <button type="button" data-mode="join" class="${mode === 'join' ? 'on' : ''}">Gå med i familj</button>
@@ -447,26 +474,104 @@ function renderOnboarding() {
           : `<label class="field"><span>Inbjudningskod</span><input class="input" name="code" value="${esc(joinParam || '')}" placeholder="T.ex. K7PX2M" autocapitalize="characters" style="text-transform:uppercase;letter-spacing:.1em" required></label>`}
         <div class="error" id="onb-error"></div>
         <button class="btn" type="submit">${mode === 'create' ? 'Skapa familj' : 'Gå med'}</button>
+        ${needsEmail ? '<p style="text-align:center">Har du redan ett konto? <button type="button" class="link" data-mode="login">Logga in</button></p>' : ''}
       </form>
     </div>`;
+  const fm = $('#onb-form');
+  const saveDraft = () => { S.onbDraft = { name: fm.name.value, color, email: fm.email?.value, password: fm.password?.value }; };
   $$('[data-color]').forEach(b => b.onclick = () => {
     color = b.dataset.color;
     $$('[data-color]').forEach(x => x.classList.toggle('on', x === b));
   });
-  $$('#onb-form [data-mode]').forEach(b => b.onclick = () => { S.onboardMode = b.dataset.mode; render(); });
-  $('#onb-form').onsubmit = async e => {
+  $$('#onb-form [data-mode]').forEach(b => b.onclick = () => { saveDraft(); S.onboardMode = b.dataset.mode; render(); });
+  fm.onsubmit = async e => {
     e.preventDefault();
-    const fm = e.target, btn = fm.querySelector('[type=submit]');
+    const btn = fm.querySelector('[type=submit]');
     const info = { name: fm.name.value.trim(), color };
     $('#onb-error').textContent = '';
     btn.disabled = true;
     try {
+      // Kolla igen här: e-posten kan redan vara kopplad om ett tidigare försök stoppade senare.
+      if (needsEmail && !S.user.email) S.user = await B.linkEmail(fm.email.value.trim(), fm.password.value);
       if (mode === 'create') await B.createFamily(me(), fm.family.value.trim(), info);
       else await B.joinFamily(me(), fm.code.value.trim().toUpperCase(), info);
       if (joinParam) history.replaceState(null, '', location.pathname);
+      S.onbDraft = null;
       S.view = 'today';
     } catch (err) {
+      saveDraft();
       $('#onb-error').textContent = friendlyError(err);
+      btn.disabled = false;
+    }
+  };
+}
+
+/* --- Logga in med befintligt konto --- */
+function renderLogin() {
+  if (S.screen === 'login') return;
+  S.screen = 'login';
+  setChrome(false);
+  $('#top').innerHTML = '';
+  $('#content').innerHTML = `
+    <div class="auth">
+      <img class="logo" src="icons/icon-192.png" alt="">
+      <h2>Logga in</h2>
+      <p class="lead">Med e-posten du kopplade till Familjelistan.</p>
+      <form id="login-form">
+        <label class="field"><span>E-post</span><input class="input" name="email" type="email" inputmode="email" autocomplete="email" value="${esc(S.onbDraft?.email || '')}" required></label>
+        <label class="field"><span>Lösenord</span><input class="input" name="password" type="password" autocomplete="current-password" required></label>
+        <div class="error" id="login-error"></div>
+        <button class="btn" type="submit">Logga in</button>
+        <p style="text-align:center"><button type="button" class="link" data-act="forgot">Glömt lösenordet?</button></p>
+        <p style="text-align:center">Ny här? <button type="button" class="link" data-act="to-signup">Skapa konto</button></p>
+      </form>
+    </div>`;
+  const fm = $('#login-form');
+  fm.querySelector('[data-act="to-signup"]').onclick = () => { S.onboardMode = null; render(); };
+  fm.querySelector('[data-act="forgot"]').onclick = async () => {
+    const email = fm.email.value.trim();
+    if (!email) return ($('#login-error').textContent = 'Skriv din e-post först.');
+    try { await B.resetPassword(email); toast('Vi har mejlat en länk för att välja nytt lösenord. Kolla även skräpposten.'); }
+    catch (err) { $('#login-error').textContent = friendlyError(err); }
+  };
+  fm.onsubmit = async e => {
+    e.preventDefault();
+    const btn = fm.querySelector('[type=submit]');
+    $('#login-error').textContent = '';
+    btn.disabled = true;
+    try {
+      await B.signInEmail(fm.email.value.trim(), fm.password.value);
+      S.onboardMode = null; S.onbDraft = null; S.view = 'today';
+    } catch (err) {
+      $('#login-error').textContent = friendlyError(err);
+      btn.disabled = false;
+    }
+  };
+}
+
+/* --- Konto: koppla e-post --- */
+function openAccountSheet() {
+  const sh = openSheet(`
+    <h3>Spara ditt konto</h3>
+    <p class="hint" style="margin:0 0 16px">Koppla en e-post till ditt konto. Då kan du logga in igen om du byter telefon eller om appen har glömt dig. Allt du har behålls.</p>
+    <form id="acc-form">
+      <label class="field"><span>E-post</span><input class="input" name="email" type="email" inputmode="email" autocomplete="email" required></label>
+      <label class="field"><span>Välj ett lösenord (minst 6 tecken)</span><input class="input" name="password" type="password" autocomplete="new-password" minlength="6" required></label>
+      <div class="error" id="acc-error"></div>
+      <button class="btn" type="submit">Spara konto</button>
+    </form>`);
+  const fm = $('#acc-form', sh);
+  fm.onsubmit = async e => {
+    e.preventDefault();
+    const btn = fm.querySelector('[type=submit]');
+    btn.disabled = true;
+    try {
+      S.user = await B.linkEmail(fm.email.value.trim(), fm.password.value);
+      closeSheet();
+      toast('Kontot är sparat ✓');
+      render();
+    } catch (err) {
+      $('#acc-error', sh).textContent = friendlyError(err);
       btn.disabled = false;
     }
   };
@@ -595,6 +700,10 @@ function bindStaticEvents() {
       case 'clear-done': return clearDone();
       case 'share': return share();
       case 'edit-profile': return openProfileSheet();
+      case 'link-email': return openAccountSheet();
+      case 'sign-out':
+        if (confirm('Logga ut från Familjelistan på den här telefonen?')) { S.onboardMode = 'login'; S.view = 'today'; run(B.signOut()); }
+        return;
       case 'rename-family': {
         const n = prompt('Familjens namn:', S.family.name);
         if (n?.trim()) run(B.updateFamily(fid(), { name: n.trim() }));

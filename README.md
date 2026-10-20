@@ -51,12 +51,13 @@ Appen installeras direkt från webben. Du behöver inte gå via App Store eller 
 
 ### Första gången
 
-- **Den första i familjen** skriver sitt namn och väljer **Skapa ny familj**.
+- **Den första i familjen** skriver namn, e-post och lösenord och väljer **Skapa ny familj**.
 - Gå sedan till fliken **Familj** → **Dela inbjudan** och skicka länken till de andra.
-- **De andra** öppnar inbjudningslänken, skriver sitt namn och är med direkt. Ingen behöver logga in.
+- **De andra** öppnar inbjudningslänken, skapar ett konto med sin e-post och är med direkt.
+- **Ny telefon?** Välj **Logga in** och använd samma e-post och lösenord.
 - Vill du ha påminnelser? Gå till **Familj** → **Slå på notiser**.
 
-> 💡 **På iPhone:** lägg till appen på hemskärmen *innan* du skriver ditt namn. Annars räknas Safari och appen som två olika telefoner.
+> 💡 **På iPhone:** lägg till appen på hemskärmen *innan* du skapar ditt konto, och logga sedan in där. Safari och appen på hemskärmen loggas in var för sig.
 
 ---
 
@@ -66,6 +67,7 @@ Appen installeras direkt från webben. Du behöver inte gå via App Store eller 
 |---|---|
 | 📋 **Delade listor** | Alla kan skapa listor, till exempel *Att göra*, *Handla* och *Semester*. |
 | ⚡ **Synkas direkt** | När någon bockar av något syns det på allas telefoner samtidigt. |
+| 🔐 **Eget konto** | Logga in med e-post. Byt telefon utan att tappa något. |
 | 👤 **Vem gör vad** | Ge uppgifter till en person. Var och en har en egen färg. |
 | 📅 **Datum** | Vyn *Idag* visar det som ska göras idag och det som är försenat. |
 | 🔁 **Återkommande** | *Ta ut soporna varje tisdag* dyker upp igen av sig själv. |
@@ -94,7 +96,7 @@ mjölk, bröd, ägg, bananer      ← i en inköpslista
 | Del | Var |
 |---|---|
 | Appen | `docs/` – publiceras med GitHub Pages |
-| Databas och identitet | Firebase Firestore + anonym inloggning |
+| Databas och konton | Firebase Firestore + Authentication (e-post/lösenord) |
 | Säkerhetsregler | `firestore.rules` – klistras in i Firebase-konsolen |
 | Påminnelser | `reminders/` + `.github/workflows/` – GitHub Actions var 15:e minut |
 
