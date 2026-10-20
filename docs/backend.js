@@ -116,6 +116,9 @@ async function createFirebase(cfg) {
     watchFamily: (fid, cb, onError) => F.onSnapshot(famDoc(fid), s => cb(s.exists() ? { id: s.id, ...s.data() } : null), onError),
     watchLists: (fid, cb) => F.onSnapshot(col(fid, 'lists'), qs => cb(docs(qs))),
     watchTasks: (fid, cb) => F.onSnapshot(col(fid, 'tasks'), qs => cb(docs(qs))),
+    watchEvents: (fid, cb) => F.onSnapshot(col(fid, 'events'), qs => cb(docs(qs))),
+    // Bara det senaste året behövs för statistiken.
+    watchChoreLogs: (fid, since, cb) => F.onSnapshot(F.query(col(fid, 'choreLogs'), F.where('ts', '>=', since)), qs => cb(docs(qs))),
 
     addList: (fid, data) => F.addDoc(col(fid, 'lists'), { ...data, ts: Date.now() }),
     updateList: (fid, id, data) => F.updateDoc(item(fid, 'lists', id), data),
@@ -133,6 +136,21 @@ async function createFirebase(cfg) {
       const b = F.writeBatch(db);
       ids.forEach(t => b.delete(item(fid, 'tasks', t)));
       await b.commit();
+    },
+
+    addEvent: (fid, data) => F.addDoc(col(fid, 'events'), { ...data, ts: Date.now() }),
+    updateEvent: (fid, id, data) => F.updateDoc(item(fid, 'events', id), data),
+    deleteEvent: (fid, id) => F.deleteDoc(item(fid, 'events', id)),
+
+    // Returnerar id direkt (även utan nät) så att man kan ångra.
+    addChoreLog(fid, data) {
+      const ref = F.doc(col(fid, 'choreLogs'));
+      return { id: ref.id, done: F.setDoc(ref, { ...data, ts: data.ts || Date.now() }) };
+    },
+    deleteChoreLogs(fid, ids) {
+      const b = F.writeBatch(db);
+      ids.forEach(i => b.delete(item(fid, 'choreLogs', i)));
+      return b.commit();
     },
 
     // Måste anropas direkt från ett knapptryck (krav på iPhone).
@@ -195,12 +213,33 @@ function createDemo() {
         { id: id(), listId: 'l2', title: 'Kaffe', category: 'skafferi', ts: now + 8 },
         { id: id(), listId: 'l2', title: 'Toapapper', category: 'hushall', ts: now + 9, done: true, doneBy: 'mamma', doneAt: now },
       ],
+      ...seedExtras(),
+    };
+  }
+  function seedExtras() {
+    const now = Date.now(), H = 3600e3, D = 24 * H;
+    const md = n => day(n).slice(5);
+    const who = ['me', 'pappa', 'mamma'];
+    const chores = ['disk', 'tvatt', 'badrum', 'dammsuga', 'sopor', 'mat', 'disk', 'disk', 'mat', 'tvatt'];
+    const choreLogs = Array.from({ length: 34 }, (_, i) => {
+      const ts = now - Math.floor(i * 0.9 * D) - (i % 5) * H;
+      return { id: id(), choreId: chores[i % chores.length], by: who[(i * 7) % 3 === 2 && i % 4 ? 0 : (i * 7) % 3], ts, date: iso(new Date(ts)) };
+    });
+    return {
+      events: [
+        { id: id(), type: 'birthday', title: 'Mormor', md: md(4), year: 1950, ts: now },
+        { id: id(), type: 'birthday', title: 'Pappa', md: md(23), year: 1972, ts: now },
+        { id: id(), type: 'event', title: 'Föräldramöte', date: day(1), time: '18:30', ts: now },
+        { id: id(), type: 'event', title: 'Bröllopsdag', date: day(-300), yearly: true, ts: now },
+      ],
+      choreLogs,
     };
   }
 
   let data;
   try { data = JSON.parse(localStorage.getItem(KEY)) || seed(); } catch { data = seed(); }
-  const L = { profile: new Set(), family: new Set(), lists: new Set(), tasks: new Set() };
+  if (!data.events) Object.assign(data, seedExtras());
+  const L = { profile: new Set(), family: new Set(), lists: new Set(), tasks: new Set(), events: new Set(), choreLogs: new Set() };
   const clone = x => JSON.parse(JSON.stringify(x));
   const emit = () => {
     try { localStorage.setItem(KEY, JSON.stringify(data)); } catch {}
@@ -208,6 +247,8 @@ function createDemo() {
     L.family.forEach(cb => cb(clone(data.family)));
     L.lists.forEach(cb => cb(clone(data.lists)));
     L.tasks.forEach(cb => cb(clone(data.tasks)));
+    L.events.forEach(cb => cb(clone(data.events)));
+    L.choreLogs.forEach(cb => cb(clone(data.choreLogs)));
   };
   const watch = (set, value) => cb => { set.add(cb); setTimeout(() => cb(clone(value())), 0); return () => set.delete(cb); };
   const later = fn => (...a) => { fn(...a); emit(); return Promise.resolve(); };
@@ -234,6 +275,8 @@ function createDemo() {
     watchFamily: (_, cb) => watch(L.family, () => data.family)(cb),
     watchLists: (_, cb) => watch(L.lists, () => data.lists)(cb),
     watchTasks: (_, cb) => watch(L.tasks, () => data.tasks)(cb),
+    watchEvents: (_, cb) => watch(L.events, () => data.events)(cb),
+    watchChoreLogs: (_, since, cb) => watch(L.choreLogs, () => data.choreLogs.filter(l => l.ts >= since))(cb),
 
     addList: later((_, d) => data.lists.push({ ...d, id: id(), ts: Date.now() })),
     updateList: later((_, lid, d) => Object.assign(data.lists.find(l => l.id === lid) || {}, d)),
@@ -248,6 +291,16 @@ function createDemo() {
     addTask: later((_, d) => data.tasks.push({ ...d, id: id(), ts: Date.now() })),
     updateTask: later((_, tid, d) => Object.assign(data.tasks.find(t => t.id === tid) || {}, d)),
     deleteTasks: later((_, ids) => { data.tasks = data.tasks.filter(t => !ids.includes(t.id)); }),
+    addEvent: later((_, d) => data.events.push({ ...d, id: id(), ts: Date.now() })),
+    updateEvent: later((_, eid, d) => Object.assign(data.events.find(e => e.id === eid) || {}, d)),
+    deleteEvent: later((_, eid) => { data.events = data.events.filter(e => e.id !== eid); }),
+    addChoreLog(_, d) {
+      const lid = id();
+      data.choreLogs.push({ ...d, id: lid, ts: d.ts || Date.now() });
+      emit();
+      return { id: lid, done: Promise.resolve() };
+    },
+    deleteChoreLogs: later((_, ids) => { data.choreLogs = data.choreLogs.filter(l => !ids.includes(l.id)); }),
 
     enablePush: async () => { throw new Error('Notiser fungerar inte i demoläget.'); },
     disablePush: async () => {},

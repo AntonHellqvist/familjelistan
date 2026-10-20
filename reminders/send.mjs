@@ -44,6 +44,23 @@ const preview = tasks => {
   return tasks.length > 3 ? `${names} och ${tasks.length - 3} till` : names;
 };
 
+const isLeap = y => new Date(Date.UTC(y, 1, 29)).getUTCMonth() === 1;
+const mdOn = (md, y) => (md === '02-29' && !isLeap(y) ? '02-28' : md);
+
+// Födelsedagar och händelser i kalendern som infaller idag.
+function todaysEvents(events) {
+  const y = +today.slice(0, 4), md = today.slice(5);
+  const out = [];
+  for (const e of events) {
+    if (e.type === 'birthday' && mdOn(e.md, y) === md) {
+      out.unshift(e.year ? `🎂 ${e.title} fyller ${y - e.year} år` : `🎂 ${e.title} har födelsedag`);
+    } else if (e.type === 'event' && (e.date === today || (e.yearly && e.date < today && mdOn(e.date.slice(5), y) === md))) {
+      out.push(`📅 ${e.time ? e.time + ' ' : ''}${e.title}`);
+    }
+  }
+  return out;
+}
+
 const families = await db.collection('families').get();
 for (const fam of families.docs) {
   const members = fam.get('members') || [];
@@ -60,15 +77,20 @@ for (const fam of families.docs) {
     await doc.ref.update({ assignNotify: false });
   }
 
-  // Morgonpåminnelse, en gång per dag.
+  // Morgonpåminnelse, en gång per dag: dagens uppgifter, födelsedagar och händelser.
   if (hour >= MORNING_HOUR && hour < 12 && fam.get('morningSent') !== today) {
     const due = open.docs.map(d => d.data()).filter(t => t.due && t.due <= today);
+    const special = todaysEvents((await fam.ref.collection('events').get()).docs.map(d => d.data()));
     for (const uid of members) {
       const mine = due.filter(t => !t.assignee || t.assignee === uid);
-      if (!mine.length) continue;
-      const late = mine.filter(t => t.due < today).length;
-      const title = `${mine.length} ${mine.length === 1 ? 'sak' : 'saker'} att göra idag${late ? ` (${late} försenad${late === 1 ? '' : 'e'})` : ''}`;
-      await notify(uid, title, preview(mine));
+      if (!mine.length && !special.length) continue;
+      if (mine.length) {
+        const late = mine.filter(t => t.due < today).length;
+        const title = `${mine.length} ${mine.length === 1 ? 'sak' : 'saker'} att göra idag${late ? ` (${late} försenad${late === 1 ? '' : 'e'})` : ''}`;
+        await notify(uid, title, [preview(mine), ...special].join('\n'));
+      } else {
+        await notify(uid, `Idag: ${special[0]}`, special.slice(1).join('\n') || 'Ha en fin dag!');
+      }
     }
     await fam.ref.update({ morningSent: today });
   }

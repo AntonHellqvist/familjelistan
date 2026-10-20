@@ -1,4 +1,5 @@
 import { initBackend, COLORS } from './backend.js';
+import { NAMEDAYS, HOLIDAYS } from './days.js';
 
 /* ---------------- Konstanter ---------------- */
 
@@ -112,7 +113,8 @@ const isStandalone = () => matchMedia('(display-mode: standalone)').matches || n
 
 const S = {
   user: null, profile: null, familyId: null, family: null, familyMissing: false,
-  lists: [], tasks: [],
+  lists: [], tasks: [], events: [], choreLogs: [],
+  calMonth: null, calDay: null, choreWho: null, chorePeriod: 'week',
   view: 'today', listId: null, filter: 'all', showDone: false,
   screen: null, onboardMode: null,
 };
@@ -202,12 +204,14 @@ function attachFamily(id) {
     B.watchFamily(id, f => { S.family = f; S.familyMissing = !f; render(); }, () => { S.familyMissing = true; render(); }),
     B.watchLists(id, l => { S.lists = l; render(); }),
     B.watchTasks(id, t => { S.tasks = t; render(); }),
+    B.watchEvents(id, e => { S.events = e; render(); }),
+    B.watchChoreLogs(id, Date.now() - 400 * 86400000, l => { S.choreLogs = l; render(); }),
   ];
 }
 function detachFamily() {
   familyUnsubs.forEach(u => u?.());
   familyUnsubs = [];
-  Object.assign(S, { familyId: null, family: null, familyMissing: false, lists: [], tasks: [] });
+  Object.assign(S, { familyId: null, family: null, familyMissing: false, lists: [], tasks: [], events: [], choreLogs: [] });
 }
 
 function onForegroundPush(n) {
@@ -231,7 +235,7 @@ function render() {
   S.screen = 'main';
   setChrome(true);
   if (S.view === 'list' && !listById(S.listId)) S.view = 'lists';
-  ({ today: renderToday, lists: renderLists, list: renderList, family: renderFamily })[S.view]();
+  ({ today: renderToday, lists: renderLists, list: renderList, calendar: renderCalendar, chores: renderChores, family: renderFamily })[S.view]();
   updateComposer();
   const tab = S.view === 'list' ? 'lists' : S.view;
   $$('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === tab));
@@ -304,6 +308,8 @@ function renderToday() {
   const doneToday = S.tasks.filter(isDoneToday).length;
 
   let html = filterChips();
+  const special = specialLines(today());
+  if (special.length) html += `<div class="card special" style="margin-bottom:6px">${specialHtml(special)}</div>`;
   if (!B.demo && !S.user.email) html += `<button class="stat" style="display:block;width:100%;text-align:left;background:var(--chip);color:var(--text)" data-act="link-email">🔒 <b>Spara ditt konto med e-post</b> så att du aldrig tappar bort familjen. <span class="link">Gör det nu ›</span></button>`;
   if (doneToday) html += `<div class="stat">🎉 Familjen har klarat ${doneToday} ${doneToday === 1 ? 'sak' : 'saker'} idag</div>`;
   html += section('Försenat', late, { showList: true, danger: true });
@@ -646,12 +652,22 @@ function toggleTask(id) {
     const next = nextDue(t.due, t.repeat);
     const prev = { due: t.due || null, lastDoneBy: t.lastDoneBy || null, lastDoneAt: t.lastDoneAt || null };
     run(B.updateTask(fid(), id, { due: next, lastDoneBy: me(), lastDoneAt: Date.now() }));
-    toast(`Klart! Nästa gång: ${fmtDue(next).toLowerCase()}`, 'Ångra', () => run(B.updateTask(fid(), id, prev)));
+    const logId = logChoreForTask(t);
+    toast(`Klart! Nästa gång: ${fmtDue(next).toLowerCase()}`, 'Ångra', () => {
+      run(B.updateTask(fid(), id, prev));
+      if (logId) run(B.deleteChoreLogs(fid(), [logId]));
+    });
   } else if (!t.done) {
     run(B.updateTask(fid(), id, { done: true, doneBy: me(), doneAt: Date.now() }));
-    if (!shop) toast('Bra jobbat! ✓', 'Ångra', () => run(B.updateTask(fid(), id, { done: false, doneBy: null, doneAt: null })));
+    const logId = shop ? null : logChoreForTask(t);
+    if (!shop) toast(logId ? `Bra jobbat! ✓ Räknas i statistiken.` : 'Bra jobbat! ✓', 'Ångra', () => {
+      run(B.updateTask(fid(), id, { done: false, doneBy: null, doneAt: null }));
+      if (logId) run(B.deleteChoreLogs(fid(), [logId]));
+    });
   } else {
     run(B.updateTask(fid(), id, { done: false, doneBy: null, doneAt: null }));
+    const ids = S.choreLogs.filter(l => l.taskId === id && l.date === today()).map(l => l.id);
+    if (ids.length) run(B.deleteChoreLogs(fid(), ids));
   }
 }
 
@@ -702,6 +718,26 @@ function bindStaticEvents() {
       case 'clear-done': return clearDone();
       case 'share': return share();
       case 'edit-profile': return openProfileSheet();
+      case 'cal-prev': case 'cal-next': {
+        const [y, m] = S.calMonth.split('-').map(Number);
+        const d = new Date(y, m - 1 + (el.dataset.act === 'cal-next' ? 1 : -1), 1);
+        S.calMonth = iso(d).slice(0, 7);
+        S.calDay = S.calMonth === today().slice(0, 7) ? today() : iso(d);
+        return render();
+      }
+      case 'cal-today': S.calDay = today(); S.calMonth = S.calDay.slice(0, 7); return render();
+      case 'cal-day': S.calDay = el.dataset.day; return render();
+      case 'new-event': return openEventSheet(null, S.view === 'calendar' ? S.calDay : today());
+      case 'edit-event': { const ev = S.events.find(x => x.id === el.dataset.eid); return ev && openEventSheet(ev); }
+      case 'chore-who': S.choreWho = el.dataset.v; return render();
+      case 'chore-period': S.chorePeriod = el.dataset.v; return render();
+      case 'log-chore': return logChore(el.dataset.chore);
+      case 'new-chore': return openChoreSheet();
+      case 'del-log': {
+        const l = S.choreLogs.find(x => x.id === el.dataset.lid);
+        if (l && confirm(`Ta bort "${choreById(l.choreId).name}" (${member(l.by)?.name || 'någon'}, ${fmtWhen(l.ts)}) från statistiken?`)) run(B.deleteChoreLogs(fid(), [l.id]));
+        return;
+      }
       case 'link-email': return openAccountSheet();
       case 'sign-out':
         if (confirm('Logga ut från Familjelistan på den här telefonen?')) { S.onboardMode = 'login'; S.view = 'today'; run(B.signOut()); }
@@ -884,6 +920,402 @@ function openProfileSheet() {
     run(B.updateMember(fid(), me(), { name, color }));
     closeSheet();
   };
+}
+
+/* ================= Kalender ================= */
+
+function easter(y) {
+  // Gregoriansk påskberäkning (Meeus/Jones/Butcher).
+  const a = y % 19, b = Math.floor(y / 100), c = y % 100, d = Math.floor(b / 4), e = b % 4;
+  const f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const n = h + l - 7 * m + 114;
+  return new Date(y, Math.floor(n / 31) - 1, (n % 31) + 1);
+}
+const lastSunday = (y, m) => { const d = new Date(y, m + 1, 0); d.setDate(d.getDate() - d.getDay()); return d; };
+const nthSunday = (y, m, n) => { const d = new Date(y, m, 1); d.setDate(1 + ((7 - d.getDay()) % 7) + 7 * (n - 1)); return d; };
+
+const FIXED_THEME_DAYS = {
+  '01-13': '🎄 Tjugondag Knut', '02-14': '❤️ Alla hjärtans dag', '03-08': '💜 Internationella kvinnodagen',
+  '03-14': '🥧 Pi-dagen', '03-25': '🧇 Våffeldagen', '04-01': '🤡 Första april', '04-30': '🔥 Valborgsmässoafton',
+  '05-04': '⭐ Star Wars-dagen', '10-04': '🥐 Kanelbullens dag', '10-31': '🎃 Halloween', '11-06': '🧁 Gustav Adolfsdagen',
+  '11-07': '🍫 Kladdkakans dag', '11-10': '🦢 Mårtensafton', '12-09': '🍪 Pepparkakans dag', '12-10': '🏅 Nobeldagen',
+  '12-13': '🕯️ Lucia',
+};
+const themeCache = {};
+function themeDays(y) {
+  if (themeCache[y]) return themeCache[y];
+  const out = {};
+  const add = (d, label) => { const k = iso(d); (out[k] = out[k] || []).push(label); };
+  for (const [md, label] of Object.entries(FIXED_THEME_DAYS)) add(parseIso(`${y}-${md}`), label);
+  add(addDays(easter(y), -47), '🥯 Fettisdagen – semmeldagen');
+  add(lastSunday(y, 4), '💐 Mors dag');
+  add(nthSunday(y, 10, 2), '👔 Fars dag');
+  const xmas = new Date(y, 11, 25);
+  add(addDays(xmas, -(xmas.getDay() || 7) - 21), '🕯️ Första advent');
+  add(lastSunday(y, 2), '🕑 Sommartid – ställ fram klockan');
+  add(lastSunday(y, 9), '🕑 Vintertid – ställ tillbaka klockan');
+  // Hoppa över temadagar som redan finns som helgdag (t.ex. Julafton).
+  for (const [k, labels] of Object.entries(out)) {
+    const h = HOLIDAYS[k]?.[0]?.toLowerCase();
+    if (h) out[k] = labels.filter(l => !l.toLowerCase().includes(h));
+  }
+  return (themeCache[y] = out);
+}
+
+const isLeap = y => new Date(y, 1, 29).getMonth() === 1;
+// Födelsedag 29 feb firas 28 feb vanliga år.
+const mdOn = (md, y) => (md === '02-29' && !isLeap(y) ? '02-28' : md);
+
+function eventsOn(day) {
+  const y = +day.slice(0, 4), md = day.slice(5);
+  return S.events.filter(e => {
+    if (e.type === 'birthday') return mdOn(e.md, y) === md;
+    if (e.date === day) return true;
+    return e.yearly && e.date < day && mdOn(e.date.slice(5), y) === md;
+  }).sort((a, b) => (a.type === 'birthday' ? -1 : 0) - (b.type === 'birthday' ? -1 : 0) || (a.time || '').localeCompare(b.time || ''));
+}
+
+// Uppgifter med datum, inklusive kommande gånger för återkommande uppgifter.
+function tasksOn(day) {
+  return S.tasks.filter(t => {
+    if (!t.due || listById(t.listId)?.type === 'shopping') return false;
+    if (t.due === day) return true;
+    if (!t.repeat || t.done || day < t.due) return false;
+    const a = parseIso(t.due), b = parseIso(day), diff = Math.round((b - a) / 86400000);
+    switch (t.repeat) {
+      case 'daily': return true;
+      case 'weekly': return diff % 7 === 0;
+      case 'biweekly': return diff % 14 === 0;
+      case 'monthly': return a.getDate() === b.getDate();
+      case 'yearly': return t.due.slice(5) === day.slice(5);
+    }
+    return false;
+  });
+}
+
+function birthdayLabel(e, y) {
+  return e.year ? `${e.title} fyller ${y - e.year} år` : `${e.title}s födelsedag`;
+}
+
+// Det som är speciellt med en dag: helgdag, temadagar, namnsdag, födelsedagar och händelser.
+function specialLines(day) {
+  const y = +day.slice(0, 4);
+  const lines = [];
+  const hol = HOLIDAYS[day];
+  if (hol) lines.push({ cls: hol[1] ? 'red' : '', text: `🇸🇪 ${hol[0]}` });
+  for (const t of themeDays(y)[day] || []) lines.push({ text: t });
+  for (const e of eventsOn(day)) {
+    lines.push(e.type === 'birthday'
+      ? { text: `🎂 ${birthdayLabel(e, y)}`, id: e.id, cls: 'strong' }
+      : { text: `📅 ${e.time ? e.time + ' ' : ''}${e.title}${e.yearly && e.date < day ? ` (${y - +e.date.slice(0, 4)} år)` : ''}`, id: e.id, cls: 'strong' });
+  }
+  const names = NAMEDAYS[day.slice(5)] || [];
+  if (names.length) lines.push({ cls: 'muted', text: `📛 Namnsdag: ${names.join(', ')}` });
+  return lines;
+}
+
+function specialHtml(lines) {
+  return lines.map(l => `<div class="special-line ${l.cls || ''}" ${l.id ? `data-act="edit-event" data-eid="${esc(l.id)}"` : ''}>${esc(l.text)}</div>`).join('');
+}
+
+function isoWeek(d) {
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7);
+}
+
+function renderCalendar() {
+  if (!S.calDay) S.calDay = today();
+  if (!S.calMonth) S.calMonth = S.calDay.slice(0, 7);
+  const [y, m] = S.calMonth.split('-').map(Number);
+  $('#top').innerHTML = `
+    <button class="icon-btn" data-act="cal-prev" aria-label="Föregående månad">‹</button>
+    <h1 style="text-align:center">${cap(MONTHS_LONG[m - 1])} ${y}</h1>
+    <button class="icon-btn" data-act="cal-next" aria-label="Nästa månad">›</button>`;
+
+  const first = new Date(y, m - 1, 1);
+  const offset = (first.getDay() + 6) % 7;
+  const daysInMonth = new Date(y, m, 0).getDate();
+  const t = today();
+  let cells = ['Mån', 'Tis', 'Ons', 'Tor', 'Fre', 'Lör', 'Sön'].map(d => `<div class="cal-wd">${d}</div>`).join('');
+  for (let i = 0; i < offset; i++) cells += '<div></div>';
+  for (let d = 1; d <= daysInMonth; d++) {
+    const day = `${y}-${pad(m)}-${pad(d)}`;
+    const date = new Date(y, m - 1, d);
+    const hol = HOLIDAYS[day];
+    const evs = eventsOn(day);
+    const dots = [];
+    if (tasksOn(day).some(x => !x.done)) dots.push('task');
+    if (evs.some(e => e.type === 'birthday')) dots.push('bday');
+    if (evs.some(e => e.type !== 'birthday')) dots.push('event');
+    if ((themeDays(y)[day] || []).length || (hol && !hol[1])) dots.push('theme');
+    const red = date.getDay() === 0 || hol?.[1];
+    cells += `<button class="cal-day ${day === t ? 'today' : ''} ${day === S.calDay ? 'sel' : ''} ${red ? 'red' : ''}" data-act="cal-day" data-day="${day}">
+      <span class="num">${d}</span><span class="dots">${dots.map(c => `<i class="dot-${c}"></i>`).join('')}</span></button>`;
+  }
+
+  const sel = parseIso(S.calDay);
+  const lines = specialLines(S.calDay);
+  const dayTasks = tasksOn(S.calDay).sort(byDue);
+  let agenda = `<div class="section-title"><span>${cap(WEEKDAYS[sel.getDay()])} ${sel.getDate()} ${MONTHS_LONG[sel.getMonth()]} · v. ${isoWeek(sel)}</span>
+    <button data-act="new-event">＋ Lägg till</button></div>`;
+  if (lines.length) agenda += `<div class="card special">${specialHtml(lines)}</div>`;
+  if (dayTasks.length) agenda += `<div class="card" style="margin-top:10px"><ul class="tasks">${dayTasks.map(x => taskHtml(x, { showList: true })).join('')}</ul></div>`;
+  if (!dayTasks.length && !lines.some(l => l.id)) agenda += `<p class="hint" style="margin-top:10px">Inget inplanerat. Tryck på <b>＋ Lägg till</b> för en händelse, deadline eller födelsedag.</p>`;
+
+  // Kommande födelsedagar de närmaste 60 dagarna.
+  const upcoming = [];
+  for (let i = 1; i <= 60 && upcoming.length < 5; i++) {
+    const d = iso(addDays(parseIso(t), i));
+    for (const e of eventsOn(d)) if (e.type === 'birthday') upcoming.push({ e, d });
+  }
+  if (upcoming.length) {
+    agenda += `<div class="section-title"><span>Kommande födelsedagar</span></div><div class="card">${upcoming.map(({ e, d }) =>
+      `<div class="row" data-act="edit-event" data-eid="${esc(e.id)}"><span style="font-size:22px">🎂</span><div class="grow"><div>${esc(birthdayLabel(e, +d.slice(0, 4)))}</div><div class="small">${esc(fmtDue(d))}${dayDiff(d) > 1 ? ` · om ${dayDiff(d)} dagar` : ''}</div></div></div>`).join('')}</div>`;
+  }
+
+  $('#content').innerHTML = `<div class="card cal"><div class="cal-grid">${cells}</div>
+    <div class="cal-legend"><span><i class="dot-task"></i>Att göra</span><span><i class="dot-event"></i>Händelse</span><span><i class="dot-bday"></i>Födelsedag</span><span><i class="dot-theme"></i>Temadag</span></div></div>
+    ${S.calMonth !== t.slice(0, 7) ? '<p style="text-align:center;margin:10px 0 0"><button class="link" data-act="cal-today">Till idag</button></p>' : ''}
+    ${agenda}`;
+}
+
+function openEventSheet(ev, day) {
+  const isTaskMode = !ev;
+  let type = ev?.type || 'event';
+  let assignee = null;
+  const draft = {
+    title: ev?.title || '',
+    date: ev ? (ev.type === 'birthday' ? `${ev.year || 2000}-${ev.md}` : ev.date) : (day || today()),
+    time: ev?.time || '', yearly: !!ev?.yearly, note: ev?.note || '',
+    showAge: ev ? !!ev.year : true,
+  };
+  const draw = () => {
+    const todoLists = sortedLists().filter(l => l.type !== 'shopping');
+    const sh = openSheet(`
+      <h3>${ev ? (type === 'birthday' ? 'Födelsedag' : 'Händelse') : 'Lägg till i kalendern'}</h3>
+      ${isTaskMode ? `<div class="seg" id="e-type" style="margin-bottom:16px">
+        <button type="button" data-v="event" class="${type === 'event' ? 'on' : ''}">📅 Händelse</button>
+        <button type="button" data-v="task" class="${type === 'task' ? 'on' : ''}">✅ Att göra</button>
+        <button type="button" data-v="birthday" class="${type === 'birthday' ? 'on' : ''}">🎂 Födelsedag</button>
+      </div>` : ''}
+      <label class="field"><span>${type === 'birthday' ? 'Vems födelsedag?' : type === 'task' ? 'Vad ska göras?' : 'Vad händer?'}</span>
+        <input class="input" id="e-title" value="${esc(draft.title)}" placeholder="${type === 'birthday' ? 'T.ex. Mormor' : type === 'task' ? 'T.ex. Lämna in deklarationen' : 'T.ex. Tandläkare, Föräldramöte'}"></label>
+      <label class="field"><span>${type === 'birthday' ? 'Födelsedatum' : type === 'task' ? 'Senast (deadline)' : 'Datum'}</span><input class="input" type="date" id="e-date" value="${esc(draft.date)}"></label>
+      ${type === 'event' ? `
+        <label class="field"><span>Tid (valfritt)</span><input class="input" type="time" id="e-time" value="${esc(draft.time)}"></label>
+        <label class="check-row"><input type="checkbox" id="e-yearly" ${draft.yearly ? 'checked' : ''}> Återkommer varje år (t.ex. bröllopsdag)</label>
+        <label class="field"><span>Anteckning</span><textarea class="input" id="e-note">${esc(draft.note)}</textarea></label>` : ''}
+      ${type === 'birthday' ? `<label class="check-row"><input type="checkbox" id="e-age" ${draft.showAge ? 'checked' : ''}> Visa hur gammal personen blir</label>` : ''}
+      ${type === 'task' ? `
+        <div class="field"><span>Vem ska göra det?</span><div class="chips" id="e-assignee">
+          <button type="button" class="chip ${!assignee ? 'on' : ''}" data-v="">Vem som helst</button>
+          ${members().map(m => `<button type="button" class="chip ${assignee === m.uid ? 'on' : ''}" data-v="${esc(m.uid)}"><span class="dot" style="background:${esc(m.color)}"></span>${esc(m.uid === me() ? 'Jag' : m.name)}</button>`).join('')}
+        </div></div>
+        <label class="field"><span>Lista</span><select class="input" id="e-list">${todoLists.map(l => `<option value="${esc(l.id)}">${esc(l.emoji)} ${esc(l.name)}</option>`).join('')}</select></label>
+        <p class="hint">Hamnar i att göra-listan och i kalendern, och kommer med i morgonpåminnelsen.</p>` : ''}
+      <button class="btn" id="e-save" style="margin-top:8px">Spara</button>
+      ${ev ? '<button class="btn danger" id="e-delete">Ta bort</button>' : ''}`);
+
+    const keep = () => {
+      draft.title = $('#e-title', sh).value; draft.date = $('#e-date', sh).value;
+      if ($('#e-time', sh)) draft.time = $('#e-time', sh).value;
+      if ($('#e-yearly', sh)) draft.yearly = $('#e-yearly', sh).checked;
+      if ($('#e-note', sh)) draft.note = $('#e-note', sh).value;
+      if ($('#e-age', sh)) draft.showAge = $('#e-age', sh).checked;
+    };
+    $('#e-type', sh)?.addEventListener('click', e => {
+      const b = e.target.closest('[data-v]'); if (!b) return;
+      keep(); type = b.dataset.v; draw();
+    });
+    $('#e-assignee', sh)?.addEventListener('click', e => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      assignee = c.dataset.v || null;
+      $$('#e-assignee .chip', sh).forEach(x => x.classList.toggle('on', x === c));
+    });
+    $('#e-save', sh).onclick = () => {
+      keep();
+      const title = draft.title.trim();
+      if (!title) return $('#e-title', sh).focus();
+      if (!draft.date) return $('#e-date', sh).focus();
+      if (type === 'task') {
+        const listId = $('#e-list', sh)?.value;
+        if (!listId) return toast('Skapa först en att göra-lista.');
+        run(B.addTask(fid(), { listId, title: cap(title), due: draft.date, repeat: null, assignee, assignedBy: assignee ? me() : null,
+          assignNotify: !!assignee && assignee !== me(), createdBy: me(), done: false }));
+      } else {
+        const data = type === 'birthday'
+          ? { type, title, md: draft.date.slice(5), year: draft.showAge ? +draft.date.slice(0, 4) : null }
+          : { type, title, date: draft.date, time: draft.time || null, yearly: draft.yearly, note: draft.note.trim() || null };
+        if (ev) run(B.updateEvent(fid(), ev.id, data));
+        else run(B.addEvent(fid(), { ...data, createdBy: me() }));
+      }
+      if (type !== 'birthday') { S.calDay = draft.date; S.calMonth = draft.date.slice(0, 7); }
+      closeSheet();
+      render();
+    };
+    $('#e-delete', sh)?.addEventListener('click', () => {
+      if (!confirm(`Ta bort "${ev.title}"?`)) return;
+      run(B.deleteEvent(fid(), ev.id));
+      closeSheet();
+    });
+  };
+  draw();
+}
+
+/* ================= Sysslor och statistik ================= */
+
+const DEFAULT_CHORES = [
+  { id: 'disk', emoji: '🍽️', name: 'Plocka diskmaskin', kw: ['diskmaskin', 'disken', 'diska'] },
+  { id: 'tvatt', emoji: '🧺', name: 'Tvätta / vika tvätt', kw: ['tvätt', 'vika'] },
+  { id: 'badrum', emoji: '🛁', name: 'Städa badrum', kw: ['badrum', 'toalett'] },
+  { id: 'dammsuga', emoji: '🧹', name: 'Dammsuga', kw: ['dammsug', 'damsug'] },
+  { id: 'golv', emoji: '🧽', name: 'Torka golv', kw: ['moppa', 'torka golv', 'våttorka'] },
+  { id: 'damma', emoji: '🪶', name: 'Damma av', kw: ['damma'] },
+  { id: 'kok', emoji: '🧼', name: 'Städa köket', kw: ['köket', 'spisen', 'kylskåp'] },
+  { id: 'mat', emoji: '🍳', name: 'Laga mat', kw: ['laga mat', 'middag'] },
+  { id: 'duka', emoji: '🍴', name: 'Duka av / torka bord', kw: ['duka', 'torka bord'] },
+  { id: 'sopor', emoji: '🗑️', name: 'Ta ut soporna', kw: ['sopor', 'soppåse'] },
+  { id: 'atervinning', emoji: '♻️', name: 'Återvinning / panta', kw: ['återvinn', 'panta', 'pant', 'källsort'] },
+  { id: 'handla', emoji: '🛒', name: 'Handla mat', kw: ['handla'] },
+  { id: 'lakan', emoji: '🛏️', name: 'Byta lakan', kw: ['lakan'] },
+  { id: 'blommor', emoji: '🪴', name: 'Vattna blommor', kw: ['vattna'] },
+  { id: 'tradgard', emoji: '🌿', name: 'Trädgård / gräsklippning', kw: ['gräs', 'trädgård', 'ogräs', 'kratta', 'löv'] },
+  { id: 'sno', emoji: '❄️', name: 'Skotta snö', kw: ['skotta'] },
+];
+const CHORE_EMOJIS = ['🧹', '🧽', '🧺', '🧼', '🪣', '🛁', '🚽', '🍽️', '🍳', '🐶', '🐱', '🚗', '🪟', '🔧', '📦', '⭐'];
+
+const allChores = () => [...DEFAULT_CHORES, ...(S.family?.chores || [])];
+const choreById = id => allChores().find(c => c.id === id) || { id, emoji: '❔', name: 'Borttagen syssla' };
+function choreForTitle(title) {
+  const s = title.toLowerCase();
+  return allChores().find(c => (c.kw || [c.name.toLowerCase()]).some(k => s.includes(k)));
+}
+
+// Registrerar en syssla när en uppgift bockas av, t.ex. "Städa badrummet".
+function logChoreForTask(t) {
+  const c = choreForTitle(t.title);
+  if (!c) return null;
+  const r = B.addChoreLog(fid(), { choreId: c.id, by: me(), date: today(), taskId: t.id });
+  run(r.done);
+  return r.id;
+}
+
+function periodStart(p) {
+  const d = new Date(); d.setHours(0, 0, 0, 0);
+  if (p === 'week') d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+  else if (p === 'month') d.setDate(1);
+  else d.setMonth(0, 1);
+  return d.getTime();
+}
+
+function fmtWhen(ts) {
+  const d = new Date(ts), n = dayDiff(iso(d));
+  const time = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  if (n === 0) return `idag ${time}`;
+  if (n === -1) return `igår ${time}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+function renderChores() {
+  if (!S.choreWho || !member(S.choreWho)) S.choreWho = me();
+  const period = S.chorePeriod || 'week';
+  const periodName = { week: 'denna vecka', month: 'denna månad', year: 'i år' }[period];
+  $('#top').innerHTML = `<h1>Sysslor</h1>`;
+
+  const weekLogs = S.choreLogs.filter(l => l.ts >= periodStart('week'));
+  const logs = S.choreLogs.filter(l => l.ts >= periodStart(period));
+  const ms = members();
+
+  const whoChips = ms.length > 1 ? `<div class="chips">${ms.map(m =>
+    `<button class="chip ${S.choreWho === m.uid ? 'on' : ''}" data-act="chore-who" data-v="${esc(m.uid)}"><span class="dot" style="background:${esc(m.color)}"></span>${esc(m.uid === me() ? 'Jag' : m.name)}</button>`).join('')}</div>` : '';
+
+  const grid = allChores().map(c => {
+    const n = weekLogs.filter(l => l.choreId === c.id).length;
+    return `<button class="chore-btn" data-act="log-chore" data-chore="${esc(c.id)}">
+      <span class="emoji">${esc(c.emoji)}</span><span class="name">${esc(c.name)}</span>
+      <span class="count">${n ? `${n} st denna vecka` : '&nbsp;'}</span></button>`;
+  }).join('') + '<button class="chore-btn new" data-act="new-chore"><span class="emoji">＋</span><span class="name">Egen syssla</span></button>';
+
+  // Topplista
+  const per = ms.map(m => ({ m, n: logs.filter(l => l.by === m.uid).length })).sort((a, b) => b.n - a.n);
+  const max = Math.max(1, ...per.map(p => p.n));
+  const medals = ['🥇', '🥈', '🥉'];
+  const board = per.map((p, i) => `<div class="row">
+      <span class="medal">${p.n ? medals[i] || '' : ''}</span>${avatar(p.m)}
+      <div class="grow"><div class="bar-label"><span>${esc(p.m.uid === me() ? `${p.m.name} (du)` : p.m.name)}</span><b>${p.n}</b></div>
+      <div class="bar"><i style="width:${(p.n / max) * 100}%;background:${esc(p.m.color)}"></i></div></div></div>`).join('');
+
+  // Per syssla
+  const byChore = allChores().map(c => ({ c, l: logs.filter(x => x.choreId === c.id) })).filter(x => x.l.length).sort((a, b) => b.l.length - a.l.length);
+  const maxC = Math.max(1, ...byChore.map(x => x.l.length));
+  const chores = byChore.map(({ c, l }) => `<div class="row"><span style="font-size:22px">${esc(c.emoji)}</span>
+      <div class="grow"><div class="bar-label"><span>${esc(c.name)}</span><b>${l.length}</b></div>
+      <div class="bar stack" style="width:${(l.length / maxC) * 100}%">${ms.map(m => { const k = l.filter(x => x.by === m.uid).length; return k ? `<i style="flex:${k};background:${esc(m.color)}" title="${esc(m.name)}: ${k}"></i>` : ''; }).join('')}</div></div></div>`).join('');
+
+  const recent = [...S.choreLogs].sort((a, b) => b.ts - a.ts).slice(0, 8).map(l => {
+    const c = choreById(l.choreId), m = member(l.by);
+    return `<div class="row"><span style="font-size:20px">${esc(c.emoji)}</span><div class="grow"><div>${esc(c.name)}</div>
+      <div class="small">${esc(m?.name || 'Någon')} · ${esc(fmtWhen(l.ts))}${l.taskId ? ' · från att göra-listan' : ''}</div></div>
+      <button class="link" style="color:var(--muted)" data-act="del-log" data-lid="${esc(l.id)}" aria-label="Ta bort">✕</button></div>`;
+  }).join('');
+
+  const star = per[0]?.n && per[0].n > (per[1]?.n || 0) ? per[0].m : null;
+
+  $('#content').innerHTML = `
+    <div class="section-title"><span>Vem gjorde det?</span></div>
+    ${whoChips}
+    <div class="chore-grid">${grid}</div>
+    <p class="hint">Tryck på en syssla när den är gjord. Bockar du av en uppgift som heter t.ex. "Städa badrummet" räknas den automatiskt.</p>
+
+    <div class="seg" style="margin:22px 0 4px">
+      ${['week', 'month', 'year'].map(p => `<button data-act="chore-period" data-v="${p}" class="${p === period ? 'on' : ''}">${{ week: 'Vecka', month: 'Månad', year: 'År' }[p]}</button>`).join('')}
+    </div>
+    ${star ? `<div class="stat">⭐ ${esc(star.uid === me() ? 'Du' : star.name)} har gjort flest sysslor ${periodName}!</div>` : ''}
+    <div class="section-title"><span>Topplista ${periodName}</span></div>
+    <div class="card">${logs.length ? board : '<div class="row small">Inga sysslor registrerade än.</div>'}</div>
+    ${chores ? `<div class="section-title"><span>Per syssla</span></div><div class="card">${chores}</div>` : ''}
+    ${recent ? `<div class="section-title"><span>Senast gjort</span></div><div class="card">${recent}</div>` : ''}`;
+}
+
+function logChore(choreId) {
+  const c = choreById(choreId), who = S.choreWho || me();
+  vibrate();
+  const r = B.addChoreLog(fid(), { choreId, by: who, date: today(), loggedBy: me() });
+  run(r.done);
+  toast(`${c.emoji} ${c.name} – ${who === me() ? 'bra jobbat!' : `registrerat för ${member(who)?.name}`}`, 'Ångra', () => run(B.deleteChoreLogs(fid(), [r.id])));
+}
+
+function openChoreSheet() {
+  let emoji = CHORE_EMOJIS[0];
+  const custom = S.family.chores || [];
+  const sh = openSheet(`
+    <h3>Egen syssla</h3>
+    <label class="field"><span>Namn</span><input class="input" id="c-name" placeholder="T.ex. Rasta hunden, Putsa fönster"></label>
+    <div class="field"><span>Ikon</span><div class="emojis" id="c-emoji">${CHORE_EMOJIS.map(e => `<button type="button" class="emoji-btn ${e === emoji ? 'on' : ''}" data-v="${e}">${e}</button>`).join('')}</div></div>
+    <button class="btn" id="c-save">Lägg till</button>
+    ${custom.length ? `<div class="section-title"><span>Era egna sysslor</span></div><div class="card">${custom.map(c =>
+      `<div class="row"><span style="font-size:20px">${esc(c.emoji)}</span><div class="grow">${esc(c.name)}</div><button class="link" style="color:var(--danger)" data-del="${esc(c.id)}">Ta bort</button></div>`).join('')}</div>` : ''}`);
+  setTimeout(() => $('#c-name', sh).focus(), 250);
+  $('#c-emoji', sh).onclick = e => {
+    const b = e.target.closest('[data-v]'); if (!b) return;
+    emoji = b.dataset.v;
+    $$('#c-emoji .emoji-btn', sh).forEach(x => x.classList.toggle('on', x === b));
+  };
+  $('#c-save', sh).onclick = () => {
+    const name = $('#c-name', sh).value.trim();
+    if (!name) return $('#c-name', sh).focus();
+    run(B.updateFamily(fid(), { chores: [...custom, { id: 'c' + Date.now().toString(36), name: cap(name), emoji }] }));
+    closeSheet();
+  };
+  sh.addEventListener('click', e => {
+    const b = e.target.closest('[data-del]'); if (!b) return;
+    const c = custom.find(x => x.id === b.dataset.del);
+    if (!confirm(`Ta bort sysslan "${c.name}"? Statistiken för den sparas men visas inte längre.`)) return;
+    run(B.updateFamily(fid(), { chores: custom.filter(x => x.id !== c.id) }));
+    closeSheet();
+  });
 }
 
 /* ---------------- Toast ---------------- */

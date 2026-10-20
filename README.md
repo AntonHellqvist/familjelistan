@@ -72,7 +72,10 @@ Appen installeras direkt från webben. Du behöver inte gå via App Store eller 
 | 📅 **Datum** | Vyn *Idag* visar det som ska göras idag och det som är försenat. |
 | 🔁 **Återkommande** | *Ta ut soporna varje tisdag* dyker upp igen av sig själv. |
 | 🛒 **Smart inköpslista** | Varorna sorteras efter butikens avdelningar, och vanliga varor föreslås. |
-| 🔔 **Påminnelser** | En notis kl. 07 om dagens uppgifter, och när någon ger dig en uppgift. |
+| 📆 **Kalender** | Uppgifter med datum hamnar automatiskt i kalendern. Lägg till händelser, deadlines och födelsedagar. |
+| 🎂 **Födelsedagar och temadagar** | Namnsdagar, helgdagar och temadagar som kanelbullens dag och fettisdagen, plus hur gammal någon fyller. |
+| 🧹 **Sysslor och statistik** | Tryck när du plockat diskmaskinen eller dammsugit, och se topplistan för veckan, månaden och året. |
+| 🔔 **Påminnelser** | En notis kl. 07 om dagens uppgifter och födelsedagar, och när någon ger dig en uppgift. |
 | 📴 **Fungerar offline** | Ändringar synkas när telefonen är uppkopplad igen. |
 
 ### Snabbinmatning
