@@ -161,6 +161,8 @@ function friendlyError(err) {
 
 async function boot() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+  // Be webbläsaren att inte rensa appens data (inloggning och cache) när det blir ont om utrymme.
+  navigator.storage?.persist?.().catch(() => {});
   addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; if (S.view === 'family') render(); });
 
   try {
