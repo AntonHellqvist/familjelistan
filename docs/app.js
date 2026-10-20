@@ -1,5 +1,5 @@
 import { initBackend, COLORS } from './backend.js';
-import { NAMEDAYS, HOLIDAYS } from './days.js';
+import { NAMEDAYS, HOLIDAYS, FLAGDAYS } from './days.js';
 
 /* ---------------- Konstanter ---------------- */
 
@@ -936,12 +936,49 @@ const lastSunday = (y, m) => { const d = new Date(y, m + 1, 0); d.setDate(d.getD
 const nthSunday = (y, m, n) => { const d = new Date(y, m, 1); d.setDate(1 + ((7 - d.getDay()) % 7) + 7 * (n - 1)); return d; };
 
 const FIXED_THEME_DAYS = {
-  '01-13': '🎄 Tjugondag Knut', '02-14': '❤️ Alla hjärtans dag', '03-08': '💜 Internationella kvinnodagen',
-  '03-14': '🥧 Pi-dagen', '03-25': '🧇 Våffeldagen', '04-01': '🤡 Första april', '04-30': '🔥 Valborgsmässoafton',
-  '05-04': '⭐ Star Wars-dagen', '10-04': '🥐 Kanelbullens dag', '10-31': '🎃 Halloween', '11-06': '🧁 Gustav Adolfsdagen',
-  '11-07': '🍫 Kladdkakans dag', '11-10': '🦢 Mårtensafton', '12-09': '🍪 Pepparkakans dag', '12-10': '🏅 Nobeldagen',
-  '12-13': '🕯️ Lucia',
+  '01-13': '🎄 Tjugondag Knut – julgransplundring',
+  '02-06': '🏔️ Samernas nationaldag',
+  '02-09': '🍕 Pizzans dag',
+  '02-14': '❤️ Alla hjärtans dag',
+  '03-08': '💜 Internationella kvinnodagen',
+  '03-14': '🥧 Pi-dagen',
+  '03-20': '😊 Internationella lyckodagen',
+  '03-22': '💧 Världsvattendagen',
+  '03-25': '🧇 Våffeldagen',
+  '04-01': '🤡 Första april – akta dig för skämt!',
+  '04-07': '🩺 Världshälsodagen',
+  '04-22': '🌍 Jordens dag',
+  '04-23': '📚 Världsbokdagen',
+  '04-29': '💃 Internationella dansdagen',
+  '04-30': '🔥 Valborgsmässoafton',
+  '05-04': '⭐ Star Wars-dagen – May the 4th be with you',
+  '05-15': '👨‍👩‍👧 Internationella familjedagen',
+  '05-20': '🐝 Världsbidagen',
+  '05-25': '🏖️ Handduksdagen',
+  '06-05': '🌱 Världsmiljödagen',
+  '07-17': '😀 Världsemojidagen',
+  '07-30': '🤝 Vänskapens dag',
+  '08-08': '🐱 Internationella kattdagen',
+  '08-26': '🐶 Hundens dag',
+  '09-19': '🏴‍☠️ Prata som en pirat-dagen',
+  '10-01': '☕ Kaffets dag',
+  '10-04': '🥐 Kanelbullens dag',
+  '10-05': '🍎 Lärarnas dag',
+  '10-16': '🥗 Världslivsmedelsdagen',
+  '10-31': '🎃 Halloween',
+  '11-06': '🧁 Gustav Adolfsdagen – dags för bakelse',
+  '11-07': '🍫 Kladdkakans dag',
+  '11-10': '🦢 Mårtensafton – gåsmiddag',
+  '11-13': '💛 Vänlighetens dag',
+  '11-19': '👨 Internationella mansdagen',
+  '11-20': '🧒 Barnkonventionens dag',
+  '12-01': '🎗️ Världsaidsdagen',
+  '12-09': '🍪 Pepparkakans dag',
+  '12-10': '🏅 Nobeldagen',
+  '12-13': '🕯️ Lucia – lussekatter',
+  '12-23': '🎁 Lillejulafton',
 };
+const nthWeekday = (y, m, wd, n) => { const d = new Date(y, m, 1); d.setDate(1 + ((wd - d.getDay() + 7) % 7) + 7 * (n - 1)); return d; };
 const themeCache = {};
 function themeDays(y) {
   if (themeCache[y]) return themeCache[y];
@@ -949,10 +986,14 @@ function themeDays(y) {
   const add = (d, label) => { const k = iso(d); (out[k] = out[k] || []).push(label); };
   for (const [md, label] of Object.entries(FIXED_THEME_DAYS)) add(parseIso(`${y}-${md}`), label);
   add(addDays(easter(y), -47), '🥯 Fettisdagen – semmeldagen');
+  add(addDays(easter(y), -3), '🧙 Skärtorsdag – påskkärringar');
+  add(nthWeekday(y, 7, 4, 3), '🐟 Surströmmingspremiär');
+  add(addDays(nthWeekday(y, 10, 4, 4), 1), '🛍️ Black Friday');
   add(lastSunday(y, 4), '💐 Mors dag');
   add(nthSunday(y, 10, 2), '👔 Fars dag');
   const xmas = new Date(y, 11, 25);
-  add(addDays(xmas, -(xmas.getDay() || 7) - 21), '🕯️ Första advent');
+  const advent4 = addDays(xmas, -(xmas.getDay() || 7));
+  ['Fjärde', 'Tredje', 'Andra', 'Första'].forEach((n, i) => add(addDays(advent4, -7 * i), `🕯️ ${n} advent`));
   add(lastSunday(y, 2), '🕑 Sommartid – ställ fram klockan');
   add(lastSunday(y, 9), '🕑 Vintertid – ställ tillbaka klockan');
   // Hoppa över temadagar som redan finns som helgdag (t.ex. Julafton).
@@ -1004,7 +1045,10 @@ function specialLines(day) {
   const lines = [];
   const hol = HOLIDAYS[day];
   if (hol) lines.push({ cls: hol[1] ? 'red' : '', text: `🇸🇪 ${hol[0]}` });
-  for (const t of themeDays(y)[day] || []) lines.push({ text: t });
+  const themes = themeDays(y)[day] || [];
+  for (const t of themes) lines.push({ text: t });
+  const flag = FLAGDAYS[day];
+  if (flag && !themes.some(t => t.includes(flag))) lines.push({ text: `🇸🇪 Flaggdag: ${flag}` });
   for (const e of eventsOn(day)) {
     lines.push(e.type === 'birthday'
       ? { text: `🎂 ${birthdayLabel(e, y)}`, id: e.id, cls: 'strong' }
@@ -1049,7 +1093,7 @@ function renderCalendar() {
     if (tasksOn(day).some(x => !x.done)) dots.push('task');
     if (evs.some(e => e.type === 'birthday')) dots.push('bday');
     if (evs.some(e => e.type !== 'birthday')) dots.push('event');
-    if ((themeDays(y)[day] || []).length || (hol && !hol[1])) dots.push('theme');
+    if ((themeDays(y)[day] || []).length || (hol && !hol[1]) || FLAGDAYS[day]) dots.push('theme');
     const red = date.getDay() === 0 || hol?.[1];
     cells += `<button class="cal-day ${day === t ? 'today' : ''} ${day === S.calDay ? 'sel' : ''} ${red ? 'red' : ''}" data-act="cal-day" data-day="${day}">
       <span class="num">${d}</span><span class="dots">${dots.map(c => `<i class="dot-${c}"></i>`).join('')}</span></button>`;
