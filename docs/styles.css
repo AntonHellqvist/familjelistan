@@ -226,3 +226,10 @@ i.dot-theme { background: #f2a33a; }
 .bar.stack { background: none; gap: 2px; min-width: 8px; }
 .bar.stack > i { border-radius: 2px; }
 .tabs button { font-size: 11px; }
+
+/* Viktiga uppgifter */
+.star { flex: none; width: 32px; height: 32px; display: grid; place-items: center; font-size: 22px; color: var(--muted); opacity: .45; margin-right: -4px; }
+.star.on { color: #f2a33a; opacity: 1; }
+.task.important { background: color-mix(in srgb, #f2a33a 9%, var(--card)); }
+.task.important .title { font-weight: 600; }
+.star-count { color: #f2a33a; font-weight: 700; }

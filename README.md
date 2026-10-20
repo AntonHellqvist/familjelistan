@@ -68,6 +68,7 @@ Appen installeras direkt från webben. Du behöver inte gå via App Store eller 
 | 📋 **Delade listor** | Alla kan skapa listor, till exempel *Att göra*, *Handla* och *Semester*. |
 | ⚡ **Synkas direkt** | När någon bockar av något syns det på allas telefoner samtidigt. |
 | 🔐 **Eget konto** | Logga in med e-post. Byt telefon utan att tappa något. |
+| ⭐ **Viktigt** | Stjärnmärk det som måste bli gjort. Det visas först och lyfts fram i påminnelsen. |
 | 👤 **Vem gör vad** | Ge uppgifter till en person. Var och en har en egen färg. |
 | 📅 **Datum** | Vyn *Idag* visar det som ska göras idag och det som är försenat. |
 | 🔁 **Återkommande** | *Ta ut soporna varje tisdag* dyker upp igen av sig själv. |
@@ -86,6 +87,7 @@ Skriv som du pratar, så fyller appen i resten:
 Byt däck imorgon @Pappa
 Ta ut soporna varje tisdag
 Ring tandläkaren på fredag
+Betala hyran ! @Mamma          ← ! eller "viktigt" ger en stjärna
 mjölk, bröd, ägg, bananer      ← i en inköpslista
 ```
 

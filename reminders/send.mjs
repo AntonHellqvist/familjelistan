@@ -39,8 +39,10 @@ async function notify(uid, title, body) {
   console.log(`Skickade "${title}" till ${tokens.length - dead.length} enhet(er).`);
 }
 
-const preview = tasks => {
-  const names = tasks.slice(0, 3).map(t => t.title).join(', ');
+// Viktiga (stjärnmärkta) uppgifter först, med en stjärna framför.
+const preview = list => {
+  const tasks = [...list].sort((a, b) => (b.important ? 1 : 0) - (a.important ? 1 : 0));
+  const names = tasks.slice(0, 3).map(t => (t.important ? '⭐ ' : '') + t.title).join(', ');
   return tasks.length > 3 ? `${names} och ${tasks.length - 3} till` : names;
 };
 
@@ -86,7 +88,8 @@ for (const fam of families.docs) {
       if (!mine.length && !special.length) continue;
       if (mine.length) {
         const late = mine.filter(t => t.due < today).length;
-        const title = `${mine.length} ${mine.length === 1 ? 'sak' : 'saker'} att göra idag${late ? ` (${late} försenad${late === 1 ? '' : 'e'})` : ''}`;
+        const stars = mine.filter(t => t.important).length;
+        const title = `${mine.length} ${mine.length === 1 ? 'sak' : 'saker'} att göra idag${late ? ` (${late} försenad${late === 1 ? '' : 'e'})` : ''}${stars ? ` – ${stars} viktig${stars === 1 ? '' : 'a'} ⭐` : ''}`;
         await notify(uid, title, [preview(mine), ...special].join('\n'));
       } else {
         await notify(uid, `Idag: ${special[0]}`, special.slice(1).join('\n') || 'Ha en fin dag!');

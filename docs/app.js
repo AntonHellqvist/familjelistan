@@ -83,7 +83,7 @@ function guessCat(title) {
 function parseQuick(text) {
   const words = text.trim().split(/\s+/);
   const out = [];
-  let due = null, repeat = '', assignee = null;
+  let due = null, repeat = '', assignee = null, important = false;
   for (let i = 0; i < words.length; i++) {
     const w = words[i], lw = w.toLowerCase().replace(/[.,!]$/, '');
     const next = words[i + 1]?.toLowerCase().replace(/[.,!]$/, '');
@@ -91,6 +91,7 @@ function parseQuick(text) {
       const m = members().find(m => m.name.toLowerCase().startsWith(lw.slice(1)));
       if (m) { assignee = m.uid; continue; }
     }
+    if (/^!+$/.test(w) || (i > 0 && (lw === 'viktigt' || lw === 'viktig'))) { important = true; continue; }
     if (i > 0 && (lw === 'idag' || lw === 'ikväll')) { due = today(); continue; }
     if (i > 0 && (lw === 'imorgon' || lw === 'imorn')) { due = iso(addDays(new Date(), 1)); continue; }
     if (i > 0 && lw === 'varje' && next) {
@@ -103,7 +104,7 @@ function parseQuick(text) {
     if (i > 0 && WEEKDAYS.includes(lw)) { due = nextWeekday(WEEKDAYS.indexOf(lw)); continue; }
     out.push(w);
   }
-  return { title: out.join(' ') || text.trim(), due, repeat, assignee };
+  return { title: out.join(' ') || text.trim(), due, repeat, assignee, important };
 }
 
 const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -133,7 +134,7 @@ const listById = id => S.lists.find(l => l.id === id);
 const taskById = id => S.tasks.find(t => t.id === id);
 const sortedLists = () => [...S.lists].sort((a, b) => (a.ts || 0) - (b.ts || 0));
 const firstTodoList = () => sortedLists().find(l => l.type !== 'shopping');
-const byDue = (a, b) => (a.due || '9999').localeCompare(b.due || '9999') || (a.ts || 0) - (b.ts || 0);
+const byDue = (a, b) => (b.important ? 1 : 0) - (a.important ? 1 : 0) || (a.due || '9999').localeCompare(b.due || '9999') || (a.ts || 0) - (b.ts || 0);
 const matchesFilter = t => S.filter === 'all' || t.assignee === S.filter;
 const isDoneToday = t => [t.doneAt, t.lastDoneAt].some(x => x && iso(new Date(x)) === today());
 
@@ -274,13 +275,16 @@ function taskHtml(t, { showList = false } = {}) {
   if (t.note) meta.push('<span>📝</span>');
   if (t.done && t.doneBy) meta.push(`<span>✓ ${esc(member(t.doneBy)?.name || '')}</span>`);
   const color = m?.color || '';
-  return `<li class="task ${t.done ? 'done' : ''}" data-id="${esc(t.id)}">
+  const star = list?.type === 'shopping' ? '' : t.done
+    ? (t.important ? '<span class="star on" aria-hidden="true">★</span>' : '')
+    : `<button class="star ${t.important ? 'on' : ''}" data-act="star" aria-label="${t.important ? 'Ta bort stjärnan' : 'Markera som viktig'}">${t.important ? '★' : '☆'}</button>`;
+  return `<li class="task ${t.done ? 'done' : ''} ${t.important && !t.done ? 'important' : ''}" data-id="${esc(t.id)}">
     <button class="check" data-act="toggle" aria-label="Bocka av" ${color ? `style="--c:${esc(color)}"` : ''}></button>
     <div class="body" data-act="edit">
       <div class="title">${esc(t.title)}</div>
       ${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}
     </div>
-    ${avatar(m)}
+    ${star}${avatar(m)}
   </li>`;
 }
 
@@ -302,6 +306,9 @@ function renderToday() {
     </div>`;
 
   const open = S.tasks.filter(t => !t.done && t.due && dayDiff(t.due) <= 7 && matchesFilter(t)).sort(byDue);
+  // Viktiga uppgifter som annars inte syns här (utan datum eller långt fram).
+  const starred = S.tasks.filter(t => !t.done && t.important && !open.includes(t) && matchesFilter(t)
+    && listById(t.listId)?.type !== 'shopping').sort(byDue);
   const late = open.filter(t => dayDiff(t.due) < 0);
   const tod = open.filter(t => dayDiff(t.due) === 0);
   const soon = open.filter(t => dayDiff(t.due) > 0);
@@ -312,10 +319,11 @@ function renderToday() {
   if (special.length) html += `<div class="card special" style="margin-bottom:6px">${specialHtml(special)}</div>`;
   if (!B.demo && !S.user.email) html += `<button class="stat" style="display:block;width:100%;text-align:left;background:var(--chip);color:var(--text)" data-act="link-email">🔒 <b>Spara ditt konto med e-post</b> så att du aldrig tappar bort familjen. <span class="link">Gör det nu ›</span></button>`;
   if (doneToday) html += `<div class="stat">🎉 Familjen har klarat ${doneToday} ${doneToday === 1 ? 'sak' : 'saker'} idag</div>`;
+  html += section('⭐ Viktigt', starred, { showList: true });
   html += section('Försenat', late, { showList: true, danger: true });
   html += section('Idag', tod, { showList: true });
   html += section('Kommande veckan', soon, { showList: true });
-  if (!open.length) {
+  if (!open.length && !starred.length) {
     html += `<div class="empty"><div class="big">☀️</div>${S.filter === 'all' ? 'Inget planerat just nu.' : 'Inget planerat för den här personen.'}<br>Skriv nedan för att lägga till något för idag.</div>`;
   }
   $('#content').innerHTML = html;
@@ -326,10 +334,11 @@ function renderLists() {
   $('#top').innerHTML = `<h1>Listor</h1>`;
   const cards = sortedLists().map(l => {
     const open = S.tasks.filter(t => t.listId === l.id && !t.done).length;
+    const stars = S.tasks.filter(t => t.listId === l.id && !t.done && t.important).length;
     return `<button class="list-card" data-act="open-list" data-id="${esc(l.id)}">
       <div class="emoji">${esc(l.emoji || '📋')}</div>
       <div><div class="name">${esc(l.name)}</div>
-      <div class="count">${open ? `${open} kvar` : 'Allt klart ✓'}</div></div>
+      <div class="count">${open ? `${open} kvar` : 'Allt klart ✓'}${stars ? ` · <span class="star-count">★ ${stars}</span>` : ''}</div></div>
     </button>`;
   }).join('');
   $('#content').innerHTML = `<div class="grid">${cards}<button class="list-card new" data-act="new-list">＋ Ny lista</button></div>`;
@@ -633,11 +642,11 @@ function submitComposer(e) {
   if (!p.due && S.view === 'today') p.due = today();
   if (!p.assignee && S.filter !== 'all') p.assignee = S.filter;
   run(B.addTask(fid(), {
-    listId: list.id, title: cap(p.title), due: p.due || null, repeat: p.repeat || null,
+    listId: list.id, title: cap(p.title), due: p.due || null, repeat: p.repeat || null, important: p.important,
     assignee: p.assignee || null, assignedBy: p.assignee ? me() : null, assignNotify: !!p.assignee && p.assignee !== me(),
     createdBy: me(), done: false,
   }));
-  const bits = [p.due && fmtDue(p.due).toLowerCase(), p.repeat && REPEATS[p.repeat].toLowerCase(), member(p.assignee)?.name].filter(Boolean);
+  const bits = [p.important && '⭐ viktig', p.due && fmtDue(p.due).toLowerCase(), p.repeat && REPEATS[p.repeat].toLowerCase(), member(p.assignee)?.name].filter(Boolean);
   if (bits.length) toast(`Tillagd · ${bits.join(' · ')}`);
 }
 
@@ -708,6 +717,12 @@ function bindStaticEvents() {
     const id = el.closest('[data-id]')?.dataset.id;
     switch (el.dataset.act) {
       case 'toggle': return toggleTask(id);
+      case 'star': {
+        const t = taskById(id); if (!t) return;
+        vibrate();
+        run(B.updateTask(fid(), id, { important: !t.important }));
+        return toast(t.important ? 'Stjärnan borttagen' : '⭐ Markerad som viktig');
+      }
       case 'edit': return openTaskSheet(taskById(id));
       case 'filter': S.filter = el.dataset.v; return render();
       case 'open-list': S.view = 'list'; S.listId = id; S.showDone = false; scrollTo(0, 0); return render();
@@ -804,6 +819,7 @@ function openTaskSheet(t) {
     ${shop ? `
       <label class="field"><span>Kategori</span><select class="input" id="f-cat">${CATS.map(([k, l]) => `<option value="${k}" ${(t.category || 'ovrigt') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
     ` : `
+      <label class="check-row"><input type="checkbox" id="f-important" ${t.important ? 'checked' : ''}> ⭐ Viktig – måste bli gjord</label>
       <div class="field"><span>När?</span>
         <div class="chips" id="f-due-chips">${dueChips.map(([v, l]) => `<button type="button" class="chip" data-v="${v}">${l}</button>`).join('')}</div>
         <input class="input" type="date" id="f-due" value="${esc(t.due || '')}">
@@ -842,6 +858,7 @@ function openTaskSheet(t) {
     else {
       data.due = $('#f-due', sh).value || null;
       data.repeat = $('#f-repeat', sh).value || null;
+      data.important = $('#f-important', sh).checked;
       if (data.repeat && !data.due) data.due = today();
     }
     run(B.updateTask(fid(), t.id, data));
@@ -1158,6 +1175,7 @@ function openEventSheet(ev, day) {
           ${members().map(m => `<button type="button" class="chip ${assignee === m.uid ? 'on' : ''}" data-v="${esc(m.uid)}"><span class="dot" style="background:${esc(m.color)}"></span>${esc(m.uid === me() ? 'Jag' : m.name)}</button>`).join('')}
         </div></div>
         <label class="field"><span>Lista</span><select class="input" id="e-list">${todoLists.map(l => `<option value="${esc(l.id)}">${esc(l.emoji)} ${esc(l.name)}</option>`).join('')}</select></label>
+        <label class="check-row"><input type="checkbox" id="e-imp"> ⭐ Viktig – måste bli gjord</label>
         <p class="hint">Hamnar i att göra-listan och i kalendern, och kommer med i morgonpåminnelsen.</p>` : ''}
       <button class="btn" id="e-save" style="margin-top:8px">Spara</button>
       ${ev ? '<button class="btn danger" id="e-delete">Ta bort</button>' : ''}`);
@@ -1186,7 +1204,7 @@ function openEventSheet(ev, day) {
       if (type === 'task') {
         const listId = $('#e-list', sh)?.value;
         if (!listId) return toast('Skapa först en att göra-lista.');
-        run(B.addTask(fid(), { listId, title: cap(title), due: draft.date, repeat: null, assignee, assignedBy: assignee ? me() : null,
+        run(B.addTask(fid(), { listId, title: cap(title), due: draft.date, repeat: null, assignee, important: !!$('#e-imp', sh)?.checked, assignedBy: assignee ? me() : null,
           assignNotify: !!assignee && assignee !== me(), createdBy: me(), done: false }));
       } else {
         const data = type === 'birthday'
